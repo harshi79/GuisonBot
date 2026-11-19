@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""GuisonBot — Telegram VCC generator + BIN lookup (binlist.net + free alts)"""
+"""GuisonBot — made by @Yorichii | owner 7728424218
+Premium VCC generator + BIN lookup (binlist.net + alts)"""
 
 import os
 import random
 import logging
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
+OWNER_ID = 7728424218
 
 BIN_ENDPOINTS = [
     "https://lookup.binlist.net/{bin}",
     "https://binlist.io/lookup/{bin}/",
 ]
+
+def is_owner(user_id: int) -> bool:
+    return user_id == OWNER_ID
 
 def get_bin_meta(bin_digits: str) -> dict | None:
     headers = {"Accept-Version": "3", "Accept": "application/json"}
@@ -37,7 +43,6 @@ def get_network(bin_str: str) -> dict:
     if len(b) < 2:
         return {"scheme": "UNKNOWN", "length": 16, "cvv_len": 3}
     p2 = int(b[:2]) if len(b) >= 2 else 0
-    p3 = int(b[:3]) if len(b) >= 3 else 0
     p4 = int(b[:4]) if len(b) >= 4 else 0
     if b[:2] in ("34", "37"):
         return {"scheme": "AMEX", "length": 15, "cvv_len": 4}
@@ -76,21 +81,24 @@ def gen_card(bin_pat: str, month: str = "N", year: str = "N", cvv: str = "N") ->
     return {"cc": cc, "month": m, "year": y, "cvv": cv}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    premium = "💎 PREMIUM" if is_owner(user.id) else "👤 USER"
     text = (
-        "<b>💎 ʏᴏʀɪ ɴᴇᴛᴡᴏʀᴋ 💎</b>\n"
+        f"<b>💎 ʏᴏʀɪ ɴᴇᴛᴡᴏʀᴋ 💎</b>\n"
+        f"made by @Yorichii · owner <code>{OWNER_ID}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>{premium}</b>\n\n"
         "<b>💳 CARD TOOLS</b>\n"
-        "├ <code>/gen</code> — Luhn VCC generator + BIN lookup\n"
-        "├ <code>/mgen</code> — mass gen (soon)\n"
-        "└ <code>/luhn</code> — validate cards\n\n"
-        "<b>🛡️ PREMIUM FEATURES</b>\n"
-        "├ unlimited gens\n"
-        "├ BIN metadata tables\n"
-        "└ priority lookups\n\n"
-        "<b>👤 DATA</b>\n"
-        "├ <code>/info</code> ├ <code>/id</code> └ <code>/bins</code>\n\n"
+        "├ <code>/gen</code> Luhn VCC + BIN\n"
+        "├ <code>/mgen</code> mass (owner)\n"
+        "└ <code>/luhn</code> validate\n\n"
+        "<b>🛡️ PREMIUM TABLE</b>\n"
+        "├ unlimited gens ✔\n"
+        "├ BIN meta tables ✔\n"
+        "├ owner cmds ✔\n"
+        "└ priority lookup ✔\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "👨‍💻 <b>DEV</b> @Yorichiiprime · ⚜️ @YoriFederation"
+        "👨‍💻 @Yorichii · ⚜️ @YoriFederation"
     )
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("❓ HELP", callback_data="help"),
@@ -99,18 +107,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    max_amt = 100 if is_owner(user.id) else 20
     args = context.args
     if not args:
         await update.message.reply_text(
             "<b>💳 /gen</b>\n"
-            "usage: <code>/gen 457173</code> or <code>/gen 457173 10</code>\n"
-            "wildcards: <code>/gen 4571xx</code>",
+            "<code>/gen 457173</code> or <code>/gen 457173 10</code>\n"
+            "wild: <code>/gen 4571xx</code>",
             parse_mode="HTML"
         )
         return
     bin_pat = args[0]
     amount = int(args[1]) if len(args) > 1 and args[1].isdigit() else 10
-    amount = max(1, min(amount, 50))
+    amount = max(1, min(amount, max_amt))
     bin_digits = "".join(c for c in bin_pat if c.isdigit())
     meta = get_bin_meta(bin_digits) if len(bin_digits) >= 6 else None
     cards = [gen_card(bin_pat) for _ in range(amount)]
@@ -130,13 +140,46 @@ async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     for c in cards:
         out += f"<code>{c['cc']}|{c['month']}|{c['year']}|{c['cvv']}</code>\n"
-    out += "\n━━━━━━━━━━━━━━━━━\n👨‍💻 @Yorichiiprime"
+    out += "\n━━━━━━━━━━━━━━━━━\n👨‍💻 @Yorichii"
     await update.message.reply_text(out, parse_mode="HTML")
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        await update.message.reply_text("🔒 owner only")
+        return
+    await update.message.reply_text(
+        f"<b>📊 STATS</b>\n"
+        f"owner: <code>{OWNER_ID}</code>\n"
+        f"time: {datetime.utcnow().isoformat()}\n"
+        "bot live ✅",
+        parse_mode="HTML"
+    )
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "<b>❓ HELP</b>\n"
+        "<code>/start</code> welcome\n"
+        "<code>/gen BIN [amt]</code> generate\n"
+        "<code>/stats</code> owner only\n"
+        "made by @Yorichii",
+        parse_mode="HTML"
+    )
+
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    if q.data == "close":
+        await q.message.delete()
+    elif q.data == "help":
+        await q.message.reply_text("use /help")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("gen", gen))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CallbackQueryHandler(button))
     app.run_polling()
 
 if __name__ == "__main__":
