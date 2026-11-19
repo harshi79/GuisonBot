@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """GuisonBot — made by @Yorichii | owner 7728424218
-Cooler premium VCC + BIN lookup"""
+Cooler premium VCC + BIN lookup + force sub admin panel"""
 
 import os
 import random
@@ -33,6 +33,47 @@ POPULAR_BINS = [
 
 def is_owner(uid: int) -> bool:
     return uid == OWNER_ID
+
+def get_fsubs(context: ContextTypes.DEFAULT_TYPE) -> list:
+    return context.bot_data.get("fsubs", [])
+
+def set_fsubs(context: ContextTypes.DEFAULT_TYPE, channels: list):
+    context.bot_data["fsubs"] = channels
+
+async def check_fsub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if is_owner(update.effective_user.id):
+        return True
+    channels = get_fsubs(context)
+    if not channels:
+        return True
+    user_id = update.effective_user.id
+    for ch in channels:
+        try:
+            member = await context.bot.get_chat_member(ch, user_id)
+            if member.status in ("left", "kicked"):
+                return False
+        except:
+            continue
+    return True
+
+async def send_fsub_wall(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    channels = get_fsubs(context)
+    if not channels:
+        return
+    buttons = []
+    for ch in channels:
+        try:
+            chat = await context.bot.get_chat(ch)
+            buttons.append([InlineKeyboardButton(f"🔔 join {chat.title or ch}", url=f"https://t.me/{chat.username or ch}")])
+        except:
+            buttons.append([InlineKeyboardButton(f"🔔 join {ch}", url=f"https://t.me/{ch}")])
+    buttons.append([InlineKeyboardButton("✅ i joined", callback_data="check_sub")])
+    kb = InlineKeyboardMarkup(buttons)
+    await update.message.reply_text(
+        "<b>🔒 access denied</b>\njoin the channels first then tap ✅",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
 def get_bin_meta(bin_digits: str):
     headers = {"Accept-Version": "3", "Accept": "application/json"}
@@ -83,6 +124,9 @@ def gen_card(bin_pat: str):
     return f"{cc}|{m}|{y}|{cv}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_fsub(update, context):
+        await send_fsub_wall(update, context)
+        return
     u = update.effective_user
     tag = "💎 OWNER" if is_owner(u.id) else "👤 USER"
     text = (
@@ -99,7 +143,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "├ higher limits\n"
         "├ live BIN tables\n"
         "├ regen buttons\n"
-        "└ owner panel\n\n"
+        "└ owner panel + fsub\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n"
         "👨‍💻 @Yorichii · ⚜️ @YoriFederation"
     )
@@ -112,6 +156,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_fsub(update, context):
+        await send_fsub_wall(update, context)
+        return
     u = update.effective_user
     max_a = 200 if is_owner(u.id) else 30
     args = context.args or []
@@ -145,6 +192,9 @@ async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(out, parse_mode="HTML", reply_markup=kb)
 
 async def bins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_fsub(update, context):
+        await send_fsub_wall(update, context)
+        return
     text = "<b>🏦 POPULAR BINS</b>\n━━━━━━━━━━━━━━━━━\n\n"
     for name, bin_, typ in POPULAR_BINS:
         text += f"<b>{name}</b>\n<code>{bin_}</code> · {typ}\n\n"
@@ -152,6 +202,9 @@ async def bins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML")
 
 async def luhn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_fsub(update, context):
+        await send_fsub_wall(update, context)
+        return
     if not context.args:
         await update.message.reply_text("<code>/luhn 4571736012345678</code>", parse_mode="HTML")
         return
@@ -177,13 +230,54 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         await update.message.reply_text("🔒 owner only")
         return
+    fsubs = get_fsubs(context)
     await update.message.reply_text(
         f"<b>📊 OWNER PANEL</b>\n"
         f"id: <code>{OWNER_ID}</code>\n"
         f"utc: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}\n"
+        f"fsubs: {len(fsubs)}\n"
         "status: 🟢 LIVE",
         parse_mode="HTML"
     )
+
+async def addfsub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("usage: /addfsub @channel or -100xxx")
+        return
+    ch = context.args[0].lstrip("@")
+    if ch.startswith("-100"):
+        ch = int(ch)
+    else:
+        ch = "@" + ch if not ch.startswith("@") else ch
+    fsubs = get_fsubs(context)
+    if ch not in fsubs:
+        fsubs.append(ch)
+        set_fsubs(context, fsubs)
+    await update.message.reply_text(f"✅ added fsub: {ch}\ncurrent: {fsubs}")
+
+async def remfsub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("usage: /remfsub @channel")
+        return
+    ch = context.args[0]
+    fsubs = get_fsubs(context)
+    if ch in fsubs:
+        fsubs.remove(ch)
+        set_fsubs(context, fsubs)
+        await update.message.reply_text(f"❌ removed: {ch}")
+    else:
+        await update.message.reply_text("not found")
+
+async def listfsub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_owner(update.effective_user.id):
+        return
+    fsubs = get_fsubs(context)
+    text = "<b>🔔 FSUB CHANNELS</b>\n" + "\n".join(f"<code>{c}</code>" for c in fsubs) if fsubs else "none"
+    await update.message.reply_text(text, parse_mode="HTML")
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -192,20 +286,29 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "close":
         await q.message.delete()
     elif data == "help":
-        await q.message.reply_text("/start /gen /bins /luhn /stats")
+        await q.message.reply_text("/start /gen /bins /luhn /stats\nowner: /addfsub /remfsub /listfsub")
+    elif data == "check_sub":
+        if await check_fsub(update, context):
+            await q.message.reply_text("✅ joined, use /start")
+            await q.message.delete()
+        else:
+            await q.answer("still not joined", show_alert=True)
     elif data == "show_bins":
-        await bins(q, context)  # hacky but works for demo
+        await bins(q, context)
     elif data.startswith("regen:"):
         _, bin_pat, amt = data.split(":")
-        # re-trigger gen logic roughly
-        await q.message.reply_text(f"regen for {bin_pat} x{amt} — use /gen {bin_pat} {amt}")
+        await q.message.reply_text(f"regen → /gen {bin_pat} {amt}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    for cmd, h in [("start", start), ("gen", gen), ("bins", bins), ("luhn", luhn), ("stats", stats)]:
+    handlers = [
+        ("start", start), ("gen", gen), ("bins", bins), ("luhn", luhn),
+        ("stats", stats), ("addfsub", addfsub), ("remfsub", remfsub), ("listfsub", listfsub)
+    ]
+    for cmd, h in handlers:
         app.add_handler(CommandHandler(cmd, h))
     app.add_handler(CallbackQueryHandler(button))
-    logger.info("bot up — made by @Yorichii")
+    logger.info("bot up — made by @Yorichii | fsub ready")
     app.run_polling()
 
 if __name__ == "__main__":
