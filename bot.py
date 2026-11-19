@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """GuisonBot — made by @Yorichii | owner 7728424218
-Premium VCC generator + BIN lookup (binlist.net + alts)"""
+Cooler premium VCC + BIN lookup"""
 
 import os
 import random
@@ -21,165 +21,191 @@ BIN_ENDPOINTS = [
     "https://binlist.io/lookup/{bin}/",
 ]
 
-def is_owner(user_id: int) -> bool:
-    return user_id == OWNER_ID
+POPULAR_BINS = [
+    ("Chase", "414720", "VISA"),
+    ("Bank of America", "435688", "VISA"),
+    ("Citibank", "542418", "MC"),
+    ("Wells Fargo", "473702", "VISA"),
+    ("Capital One", "517805", "MC"),
+    ("Amex", "378281", "AMEX"),
+    ("Discover", "601100", "DISC"),
+]
 
-def get_bin_meta(bin_digits: str) -> dict | None:
+def is_owner(uid: int) -> bool:
+    return uid == OWNER_ID
+
+def get_bin_meta(bin_digits: str):
     headers = {"Accept-Version": "3", "Accept": "application/json"}
-    for url_tmpl in BIN_ENDPOINTS:
+    for tmpl in BIN_ENDPOINTS:
         try:
-            url = url_tmpl.format(bin=bin_digits[:8])
-            r = requests.get(url, headers=headers, timeout=8)
+            r = requests.get(tmpl.format(bin=bin_digits[:8]), headers=headers, timeout=8)
             if r.status_code == 200:
-                data = r.json()
-                if data.get("scheme") or data.get("success"):
-                    return data
-        except Exception:
+                d = r.json()
+                if d.get("scheme") or d.get("success"):
+                    return d
+        except:
             continue
     return None
 
-def get_network(bin_str: str) -> dict:
-    b = bin_str
-    if len(b) < 2:
-        return {"scheme": "UNKNOWN", "length": 16, "cvv_len": 3}
-    p2 = int(b[:2]) if len(b) >= 2 else 0
-    p4 = int(b[:4]) if len(b) >= 4 else 0
-    if b[:2] in ("34", "37"):
-        return {"scheme": "AMEX", "length": 15, "cvv_len": 4}
-    if 51 <= p2 <= 55 or 2221 <= p4 <= 2720:
-        return {"scheme": "MASTERCARD", "length": 16, "cvv_len": 3}
-    if b[:1] == "4":
-        return {"scheme": "VISA", "length": 16, "cvv_len": 3}
-    if b[:4] == "6011" or b[:2] == "65":
-        return {"scheme": "DISCOVER", "length": 16, "cvv_len": 3}
+def get_network(b: str):
+    if len(b) < 2: return {"scheme": "UNKNOWN", "length": 16, "cvv_len": 3}
+    p2 = int(b[:2] or 0)
+    p4 = int(b[:4] or 0)
+    if b[:2] in ("34", "37"): return {"scheme": "AMEX", "length": 15, "cvv_len": 4}
+    if 51 <= p2 <= 55 or 2221 <= p4 <= 2720: return {"scheme": "MASTERCARD", "length": 16, "cvv_len": 3}
+    if b[0] == "4": return {"scheme": "VISA", "length": 16, "cvv_len": 3}
+    if b[:4] == "6011" or b[:2] == "65": return {"scheme": "DISCOVER", "length": 16, "cvv_len": 3}
     return {"scheme": "UNKNOWN", "length": 16, "cvv_len": 3}
 
-def expand_wild(pattern: str) -> str:
-    return "".join(str(random.randint(0, 9)) if c.lower() == "x" else c for c in pattern)
+def expand_wild(p: str) -> str:
+    return "".join(str(random.randint(0,9)) if c.lower()=="x" else c for c in p)
 
-def luhn_check_digit(partial: str) -> str:
+def luhn_digit(partial: str) -> str:
     total = 0
     for i, c in enumerate(reversed(partial)):
         d = int(c)
         if i % 2 == 0:
             d *= 2
-            if d > 9:
-                d -= 9
+            if d > 9: d -= 9
         total += d
-    return str((10 - (total % 10)) % 10)
+    return str((10 - total % 10) % 10)
 
-def gen_card(bin_pat: str, month: str = "N", year: str = "N", cvv: str = "N") -> dict:
+def gen_card(bin_pat: str):
     net = get_network(bin_pat)
     tgt = net["length"]
-    expanded = expand_wild(bin_pat)[:tgt - 1]
-    remain = max(0, tgt - 1 - len(expanded))
-    partial = expanded + "".join(str(random.randint(0, 9)) for _ in range(remain))
-    cc = partial + luhn_check_digit(partial)
-    m = f"{random.randint(1, 12):02d}" if month.upper() == "N" else month.zfill(2)
-    y = str(random.randint(2026, 2035)) if year.upper() == "N" else ("20" + year if len(year) == 2 else year)
-    cv = "".join(str(random.randint(0, 9)) for _ in range(net["cvv_len"])) if cvv.upper() == "N" else cvv
-    return {"cc": cc, "month": m, "year": y, "cvv": cv}
+    exp = expand_wild(bin_pat)[:tgt-1]
+    rem = max(0, tgt-1-len(exp))
+    partial = exp + "".join(str(random.randint(0,9)) for _ in range(rem))
+    cc = partial + luhn_digit(partial)
+    m = f"{random.randint(1,12):02d}"
+    y = str(random.randint(2026, 2035))
+    cv = "".join(str(random.randint(0,9)) for _ in range(net["cvv_len"]))
+    return f"{cc}|{m}|{y}|{cv}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    premium = "💎 PREMIUM" if is_owner(user.id) else "👤 USER"
+    u = update.effective_user
+    tag = "💎 OWNER" if is_owner(u.id) else "👤 USER"
     text = (
         f"<b>💎 ʏᴏʀɪ ɴᴇᴛᴡᴏʀᴋ 💎</b>\n"
-        f"made by @Yorichii · owner <code>{OWNER_ID}</code>\n"
+        f"made by @Yorichii · <code>{OWNER_ID}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>{premium}</b>\n\n"
-        "<b>💳 CARD TOOLS</b>\n"
-        "├ <code>/gen</code> Luhn VCC + BIN\n"
-        "├ <code>/mgen</code> mass (owner)\n"
-        "└ <code>/luhn</code> validate\n\n"
-        "<b>🛡️ PREMIUM TABLE</b>\n"
-        "├ unlimited gens ✔\n"
-        "├ BIN meta tables ✔\n"
-        "├ owner cmds ✔\n"
-        "└ priority lookup ✔\n\n"
+        f"{tag}\n\n"
+        "<b>💳 TOOLS</b>\n"
+        "├ /gen BIN [n] — generate\n"
+        "├ /bins — popular BINs\n"
+        "├ /luhn CC — check\n"
+        "└ /stats — owner\n\n"
+        "<b>⚡ PREMIUM</b>\n"
+        "├ higher limits\n"
+        "├ live BIN tables\n"
+        "├ regen buttons\n"
+        "└ owner panel\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n"
         "👨‍💻 @Yorichii · ⚜️ @YoriFederation"
     )
-    kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("❓ HELP", callback_data="help"),
-        InlineKeyboardButton("❌ CLOSE", callback_data="close")
-    ]])
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 GEN", callback_data="quick_gen"),
+         InlineKeyboardButton("🏦 BINS", callback_data="show_bins")],
+        [InlineKeyboardButton("❓ HELP", callback_data="help"),
+         InlineKeyboardButton("❌ CLOSE", callback_data="close")]
+    ])
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    max_amt = 100 if is_owner(user.id) else 20
-    args = context.args
+    u = update.effective_user
+    max_a = 200 if is_owner(u.id) else 30
+    args = context.args or []
     if not args:
-        await update.message.reply_text(
-            "<b>💳 /gen</b>\n"
-            "<code>/gen 457173</code> or <code>/gen 457173 10</code>\n"
-            "wild: <code>/gen 4571xx</code>",
-            parse_mode="HTML"
-        )
+        await update.message.reply_text("<b>💳 /gen</b>\n<code>/gen 457173 15</code>", parse_mode="HTML")
         return
     bin_pat = args[0]
-    amount = int(args[1]) if len(args) > 1 and args[1].isdigit() else 10
-    amount = max(1, min(amount, max_amt))
-    bin_digits = "".join(c for c in bin_pat if c.isdigit())
-    meta = get_bin_meta(bin_digits) if len(bin_digits) >= 6 else None
-    cards = [gen_card(bin_pat) for _ in range(amount)]
-    scheme = (meta or {}).get("scheme", "UNKNOWN").upper()
-    bank = ((meta or {}).get("bank") or {}).get("name", "Unknown")
-    country = ((meta or {}).get("country") or {}).get("name", "Unknown")
-    emoji = ((meta or {}).get("country") or {}).get("emoji", "")
+    amt = int(args[1]) if len(args)>1 and args[1].isdigit() else 10
+    amt = max(1, min(amt, max_a))
+    digits = "".join(c for c in bin_pat if c.isdigit())
+    meta = get_bin_meta(digits) if len(digits)>=6 else None
+    cards = [gen_card(bin_pat) for _ in range(amt)]
+    sch = (meta or {}).get("scheme","UNKNOWN").upper()
+    bank = ((meta or {}).get("bank") or {}).get("name","?")
+    ctry = ((meta or {}).get("country") or {}).get("name","?")
+    flag = ((meta or {}).get("country") or {}).get("emoji","")
     out = (
-        "<b>💳 CC GENERATED</b>\n"
+        "<b>💳 GENERATED</b>\n"
         "━━━━━━━━━━━━━━━━━\n\n"
-        f"<b>BIN:</b> <code>{bin_digits[:6]}</code>\n"
-        f"<b>SCHEME:</b> {scheme}\n"
-        f"<b>BANK:</b> {bank}\n"
-        f"<b>COUNTRY:</b> {country} {emoji}\n"
-        f"<b>AMOUNT:</b> {amount}\n\n"
+        f"<b>BIN</b> <code>{digits[:6]}</code>\n"
+        f"<b>SCHEME</b> {sch}\n"
+        f"<b>BANK</b> {bank}\n"
+        f"<b>COUNTRY</b> {ctry} {flag}\n"
+        f"<b>COUNT</b> {amt}\n\n"
         "━━━━━━━━━━━━━━━━━\n"
     )
     for c in cards:
-        out += f"<code>{c['cc']}|{c['month']}|{c['year']}|{c['cvv']}</code>\n"
+        out += f"<code>{c}</code>\n"
     out += "\n━━━━━━━━━━━━━━━━━\n👨‍💻 @Yorichii"
-    await update.message.reply_text(out, parse_mode="HTML")
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 REGEN", callback_data=f"regen:{bin_pat}:{amt}")]])
+    await update.message.reply_text(out, parse_mode="HTML", reply_markup=kb)
+
+async def bins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = "<b>🏦 POPULAR BINS</b>\n━━━━━━━━━━━━━━━━━\n\n"
+    for name, bin_, typ in POPULAR_BINS:
+        text += f"<b>{name}</b>\n<code>{bin_}</code> · {typ}\n\n"
+    text += "━━━━━━━━━━━━━━━━━\nuse /gen <code>BIN</code>"
+    await update.message.reply_text(text, parse_mode="HTML")
+
+async def luhn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("<code>/luhn 4571736012345678</code>", parse_mode="HTML")
+        return
+    cc = "".join(c for c in context.args[0] if c.isdigit())
+    if not (13 <= len(cc) <= 19):
+        await update.message.reply_text("bad length")
+        return
+    def valid(n):
+        s = 0
+        alt = False
+        for d in reversed(n):
+            x = int(d)
+            if alt:
+                x *= 2
+                if x > 9: x -= 9
+            s += x
+            alt = not alt
+        return s % 10 == 0
+    ok = "✅ VALID" if valid(cc) else "❌ INVALID"
+    await update.message.reply_text(f"<b>{ok}</b>\n<code>{cc}</code>", parse_mode="HTML")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(update.effective_user.id):
         await update.message.reply_text("🔒 owner only")
         return
     await update.message.reply_text(
-        f"<b>📊 STATS</b>\n"
-        f"owner: <code>{OWNER_ID}</code>\n"
-        f"time: {datetime.utcnow().isoformat()}\n"
-        "bot live ✅",
-        parse_mode="HTML"
-    )
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "<b>❓ HELP</b>\n"
-        "<code>/start</code> welcome\n"
-        "<code>/gen BIN [amt]</code> generate\n"
-        "<code>/stats</code> owner only\n"
-        "made by @Yorichii",
+        f"<b>📊 OWNER PANEL</b>\n"
+        f"id: <code>{OWNER_ID}</code>\n"
+        f"utc: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}\n"
+        "status: 🟢 LIVE",
         parse_mode="HTML"
     )
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    if q.data == "close":
+    data = q.data
+    if data == "close":
         await q.message.delete()
-    elif q.data == "help":
-        await q.message.reply_text("use /help")
+    elif data == "help":
+        await q.message.reply_text("/start /gen /bins /luhn /stats")
+    elif data == "show_bins":
+        await bins(q, context)  # hacky but works for demo
+    elif data.startswith("regen:"):
+        _, bin_pat, amt = data.split(":")
+        # re-trigger gen logic roughly
+        await q.message.reply_text(f"regen for {bin_pat} x{amt} — use /gen {bin_pat} {amt}")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("gen", gen))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("help", help_cmd))
+    for cmd, h in [("start", start), ("gen", gen), ("bins", bins), ("luhn", luhn), ("stats", stats)]:
+        app.add_handler(CommandHandler(cmd, h))
     app.add_handler(CallbackQueryHandler(button))
+    logger.info("bot up — made by @Yorichii")
     app.run_polling()
 
 if __name__ == "__main__":
