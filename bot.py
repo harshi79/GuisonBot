@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """GuisonBot — made by @Yorichii | owner 7728424218
-Button-driven admin panel + force sub"""
+Button admin + force sub + broadcast + premium emojis"""
 
 import os
 import random
 import logging
+import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
@@ -15,6 +16,13 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_YOUR_TOKEN_HERE")
 OWNER_ID = 7728424218
+
+# Example premium animated emoji IDs (replace with your own from @FIND_MY_ID_BOT)
+PREMIUM_EMOJI = {
+    "fire": "5368324170671202286",
+    "diamond": "5368324170671202286",  # placeholder
+    "check": "5368324170671202286",
+}
 
 BIN_ENDPOINTS = [
     "https://lookup.binlist.net/{bin}",
@@ -34,11 +42,23 @@ POPULAR_BINS = [
 def is_owner(uid: int) -> bool:
     return uid == OWNER_ID
 
+def get_users(context) -> set:
+    return context.bot_data.get("users", set())
+
+def add_user(context, uid: int):
+    users = get_users(context)
+    users.add(uid)
+    context.bot_data["users"] = users
+
 def get_fsubs(context) -> list:
     return context.bot_data.get("fsubs", [])
 
 def set_fsubs(context, channels: list):
     context.bot_data["fsubs"] = channels
+
+def premium_emoji(key: str, fallback: str = "🔥") -> str:
+    eid = PREMIUM_EMOJI.get(key, "5368324170671202286")
+    return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 async def check_fsub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if is_owner(update.effective_user.id):
@@ -73,7 +93,7 @@ async def send_fsub_wall(update: Update, context):
     buttons.append([InlineKeyboardButton("✅ i joined", callback_data="check_sub")])
     kb = InlineKeyboardMarkup(buttons)
     await update.effective_message.reply_text(
-        "<b>🔒 join required</b>\nthen tap ✅",
+        f"<b>{premium_emoji('fire')} join required</b>\nthen tap ✅",
         parse_mode="HTML", reply_markup=kb
     )
 
@@ -126,13 +146,14 @@ def gen_card(bin_pat: str):
     return f"{cc}|{m}|{y}|{cv}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_user(context, update.effective_user.id)
     if not await check_fsub(update, context):
         await send_fsub_wall(update, context)
         return
     u = update.effective_user
-    tag = "💎 OWNER" if is_owner(u.id) else "👤 USER"
+    tag = f"{premium_emoji('diamond')} OWNER" if is_owner(u.id) else "👤 USER"
     text = (
-        f"<b>💎 ʏᴏʀɪ ɴᴇᴛᴡᴏʀᴋ 💎</b>\n"
+        f"<b>{premium_emoji('diamond')} ʏᴏʀɪ ɴᴇᴛᴡᴏʀᴋ</b>\n"
         f"made by @Yorichii · <code>{OWNER_ID}</code>\n"
         "━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"{tag}\n\n"
@@ -161,8 +182,10 @@ async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_admin_panel(update, context, edit=False):
     fsubs = get_fsubs(context)
+    users = len(get_users(context))
     text = (
-        "<b>⚙️ ADMIN PANEL</b>\n"
+        f"<b>{premium_emoji('diamond')} ADMIN PANEL</b>\n"
+        f"users: {users}\n"
         f"fsubs: {len(fsubs)}\n"
         f"utc: {datetime.utcnow().strftime('%H:%M')}"
     )
@@ -170,27 +193,39 @@ async def show_admin_panel(update, context, edit=False):
         [InlineKeyboardButton("📋 LIST FSUB", callback_data="list_fsub"),
          InlineKeyboardButton("➕ ADD FSUB", callback_data="add_fsub")],
         [InlineKeyboardButton("➖ REMOVE FSUB", callback_data="rem_fsub"),
-         InlineKeyboardButton("📊 STATS", callback_data="owner_stats")],
-        [InlineKeyboardButton("🔙 BACK", callback_data="back_start"),
+         InlineKeyboardButton("📢 BROADCAST", callback_data="broadcast")],
+        [InlineKeyboardButton("📊 STATS", callback_data="owner_stats"),
          InlineKeyboardButton("❌ CLOSE", callback_data="close")]
     ])
-    msg = update.effective_message or update.callback_query.message
+    msg = update.effective_message or (update.callback_query.message if update.callback_query else None)
     if edit and update.callback_query:
         await update.callback_query.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
     else:
         await msg.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
+async def broadcast_to_all(context, text: str):
+    users = get_users(context)
+    sent = 0
+    for uid in list(users):
+        try:
+            await context.bot.send_message(uid, text, parse_mode="HTML")
+            sent += 1
+            await asyncio.sleep(0.05)  # smooth rate limit
+        except Exception:
+            users.discard(uid)
+    context.bot_data["users"] = users
+    return sent
+
 async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_user(context, update.effective_user.id)
     if not await check_fsub(update, context):
         await send_fsub_wall(update, context)
         return
-    # ... (same gen logic as before, truncated for brevity in this push)
-    # full gen kept from previous
     u = update.effective_user
     max_a = 200 if is_owner(u.id) else 30
     args = context.args or []
     if not args:
-        await update.message.reply_text("<b>💳 /gen</b>\n<code>/gen 457173 15</code>", parse_mode="HTML")
+        await update.message.reply_text(f"<b>{premium_emoji('fire')} /gen</b>\n<code>/gen 457173 15</code>", parse_mode="HTML")
         return
     bin_pat = args[0]
     amt = int(args[1]) if len(args)>1 and args[1].isdigit() else 10
@@ -203,7 +238,7 @@ async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ctry = ((meta or {}).get("country") or {}).get("name","?")
     flag = ((meta or {}).get("country") or {}).get("emoji","")
     out = (
-        "<b>💳 GENERATED</b>\n"
+        f"<b>{premium_emoji('fire')} GENERATED</b>\n"
         "━━━━━━━━━━━━━━━━━\n\n"
         f"<b>BIN</b> <code>{digits[:6]}</code>\n"
         f"<b>SCHEME</b> {sch}\n"
@@ -214,21 +249,23 @@ async def gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     for c in cards:
         out += f"<code>{c}</code>\n"
-    out += "\n━━━━━━━━━━━━━━━━━\n👨‍💻 @Yorichii"
+    out += f"\n━━━━━━━━━━━━━━━━━\n👨‍💻 @Yorichii"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 REGEN", callback_data=f"regen:{bin_pat}:{amt}")]])
     await update.message.reply_text(out, parse_mode="HTML", reply_markup=kb)
 
 async def bins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_user(context, update.effective_user.id)
     if not await check_fsub(update, context):
         await send_fsub_wall(update, context)
         return
-    text = "<b>🏦 POPULAR BINS</b>\n━━━━━━━━━━━━━━━━━\n\n"
+    text = f"<b>{premium_emoji('diamond')} POPULAR BINS</b>\n━━━━━━━━━━━━━━━━━\n\n"
     for name, bin_, typ in POPULAR_BINS:
         text += f"<b>{name}</b>\n<code>{bin_}</code> · {typ}\n\n"
     text += "━━━━━━━━━━━━━━━━━"
     await update.effective_message.reply_text(text, parse_mode="HTML")
 
 async def luhn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    add_user(context, update.effective_user.id)
     if not await check_fsub(update, context):
         await send_fsub_wall(update, context)
         return
@@ -281,6 +318,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("not found")
         context.user_data.pop("mode", None)
         await show_admin_panel(update, context)
+    elif mode == "broadcast":
+        context.user_data.pop("mode", None)
+        sent = await broadcast_to_all(context, text)
+        await update.message.reply_text(f"📢 broadcasted to {sent} users")
+        await show_admin_panel(update, context)
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -302,10 +344,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["mode"] = "rem_fsub"
         fsubs = get_fsubs(context)
         await q.edit_message_text("send the exact channel to remove:\n" + "\n".join(str(c) for c in fsubs))
+    elif data == "broadcast":
+        context.user_data["mode"] = "broadcast"
+        await q.edit_message_text("send the broadcast message now (HTML ok)")
     elif data == "owner_stats":
-        await q.edit_message_text(f"<b>📊</b> fsubs {len(get_fsubs(context))}\nutc {datetime.utcnow().strftime('%H:%M')}")
-    elif data == "back_start":
-        await start(update, context)  # rough
+        await q.edit_message_text(f"<b>📊</b> users {len(get_users(context))}\nfsubs {len(get_fsubs(context))}\nutc {datetime.utcnow().strftime('%H:%M')}")
     elif data == "check_sub":
         if await check_fsub(update, context):
             await q.message.reply_text("✅ good, /start")
@@ -327,7 +370,7 @@ def main():
     app.add_handler(CommandHandler("luhn", luhn))
     app.add_handler(CallbackQueryHandler(button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    logger.info("bot up — button admin panel ready")
+    logger.info("bot up — broadcast + premium emoji ready")
     app.run_polling()
 
 if __name__ == "__main__":
